@@ -27,15 +27,15 @@ class Settings:
     # print("mongo user: ",EnvKeys.MONGO_USER)
     
     # Static host for cluster.
-    MONGO_HOST: Final[str] = "cluster0.l3ldkmn.mongodb.net/?retryWrites=true&w=majority"
+    MONGO_HOST: Final[str] = "cluster0.l3ldkmn.mongodb.net"
     
     MONGO_PASS_ENCODED: Final[str] = quote_plus(MONGO_PASS_RAW)
 
-    # Construct the final, secure, and properly encoded URI
+    # Construct the final, secure, and properly encoded UR
     MONGO_URI: Final[str] = (
         f"mongodb+srv://{MONGO_USER}:{MONGO_PASS_ENCODED}@{MONGO_HOST}"
     )
-    print(f"MongoDB URI Constructed: {MONGO_URI}")
+    print(f"MongoDB URL Constructed: {MONGO_URI}")
     MONGO_DB_NAME: Final[str] = os.getenv(EnvKeys.MONGO_DB_NAME, "raw_data_db")
     MONGO_COLLECTION: Final[str] = os.getenv(EnvKeys.MONGO_COLLECTION, "link_data")
 

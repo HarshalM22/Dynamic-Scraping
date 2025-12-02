@@ -44,9 +44,8 @@ class MongoDBHandler:
 
     def insert_data(self, document: dict) -> Optional[str]:
         """Inserts a single document and returns the object ID string."""
-        if not self.collection:
-            # If connect failed, return None immediately
-            return None 
+        if self.collection is None:
+         return None 
             
         try:
             result = self.collection.insert_one(document)
