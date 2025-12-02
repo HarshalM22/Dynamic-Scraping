@@ -1,0 +1,14 @@
+# Core web requests and data parsing
+requests
+beautifulsoup4
+
+# Dynamic content handling
+playwright
+
+
+# Database driver (Example: MongoDB)
+pymongo
+
+# Configuration management (optional but recommended)
+pydantic
+python-dotenv
