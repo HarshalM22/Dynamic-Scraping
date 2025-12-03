@@ -7,8 +7,7 @@ from urllib.parse import urlparse
 import sys
 from typing import Tuple, Dict, Any
 
-# --- Define the single input link as requested ---
-INPUT_LINK = "https://www.skillsetmaster.com/"
+INPUT_LINK = "https://ghrce.raisoni.net/sports"
 
 def normalize_url(url: str) -> str:
     """Cleans a URL by removing query parameters and fragments."""
@@ -18,24 +17,21 @@ def normalize_url(url: str) -> str:
         # rstrip('/') ensures consistent normalization (e.g., 'a.com/' becomes 'a.com')
         clean_url = parsed.scheme + "://" + parsed.netloc + parsed.path.rstrip('/')
 
-        # print("normalized url : ", clean_url) 
-        # Printing only the normalized URL when processed to reduce console noise
         return clean_url
     except Exception:
-        # Return original if parsing fails (fallback for malformed URLs)
         return url 
 
 def run_system():
     """
     Main function to run the recursive web crawl (BFS) and store data.
-    Uses 'visited_urls' and 'queued_urls' to ensure efficient, non-redundant crawling.
+    Now correctly handles and stores HTML content, structured HTML data,
+    and scraped content from linked document files (PDFs).
     """
     print("Starting Recursive Web Crawler...")
     print(f"Seed URL: {INPUT_LINK}")
     print(f"Max Depth: {SETTINGS.MAX_CRAWL_DEPTH}")
     print(f"Crawl Delay: {SETTINGS.CRAWL_DELAY_SECONDS}s\n")
     
-    # CRITICAL: Check DB connection status before starting the crawl
     if not DB_HANDLER.is_connected():
         print("CRITICAL: MongoDB connection failed on startup. Cannot proceed. Exiting.")
         sys.exit(1)
@@ -49,7 +45,6 @@ def run_system():
     visited_urls = set() 
     
     # Set of URLs currently in the crawl_queue (waiting to be processed)
-    # This prevents the same link from being added to the queue multiple times
     queued_urls = {normalized_input_link}
     
     # Get the base domain for filtering internal links
@@ -58,32 +53,30 @@ def run_system():
     while crawl_queue:
         # Get the next URL and its depth
         current_url, current_depth = crawl_queue.popleft() 
-        # Remove from queued set as we are about to process it
         queued_urls.discard(current_url)
         
-        # 1. Redundancy Check: Already fetched? (This should only catch previously failed fetches if logic changes)
+        # 1. Redundancy Check
         if current_url in visited_urls:
             continue
             
-        # 2. Depth Check: Stop if we exceed the defined limit
+        # 2. Depth Check
         if current_depth > SETTINGS.MAX_CRAWL_DEPTH:
             print(f"Skipping {current_url} due to depth limit ({current_depth}).")
             continue
             
-        # Add to visited set immediately. This prevents a race condition
-        # where the same URL is queued by another process/thread (if multi-threaded), 
-        # but in this single-threaded model, it signals we are processing it.
+        # Add to visited set immediately.
         visited_urls.add(current_url)
         
-        print(f"[Depth {current_depth}] Processing: {current_url}")
+        print(f"\n[Depth {current_depth}] Processing: {current_url}")
         
         start_time = time.time()
         
         # 3. Fetch and Scrape
-        # The result includes 'data' (content) and 'links' (discovered URLs)
+        # The result now includes 'raw_html', 'data', 'links', and 'scraped_pdfs'
         crawl_result: Dict[str, Any] = fetch_content_and_links(current_url)
         
-        # 4. Prepare Data for DB
+        # 4. Prepare Data for DB (UPDATED LOGIC)
+        # We consolidate all returned content into a single document for the current URL.
         db_document = {
             'input_url': current_url,
             'crawl_depth': current_depth,
@@ -91,7 +84,14 @@ def run_system():
             # Status based on fetcher result
             'status': 'SUCCESS' if not crawl_result.get('error') else 'FAILED', 
             'error_message': crawl_result.get('error', None),
-            'raw_data_dump': crawl_result.get('data') 
+            
+            # --- HTML Content and Structure ---
+            'raw_html_content': crawl_result.get('raw_html', None), # Full HTML dump
+            'html_structured_data': crawl_result.get('data'),       # Parsed data from HTML (e.g., specific fields)
+            
+            # --- File Content (PDFs) ---
+            # This is a list of dictionaries, where each dict contains text, tables_json, and file metadata
+            'scraped_files': crawl_result.get('scraped_pdfs', []), 
         }
         
         # 5. Store Data with Robust Error Handling
@@ -99,15 +99,13 @@ def run_system():
         db_status_message = db_document['status'] # Start with the crawl status
 
         try:
-            # The fixed DB_HANDLER.insert_data now correctly uses 'is None' for checks
+            # Insert the complete document containing all HTML and file data
             insert_id = DB_HANDLER.insert_data(db_document)
             
-            # Check if handler returned a non-ID value (None usually means connection failure inside insert_data)
             if insert_id is None:
                 db_status_message = "DB_INSERT_FAILED: Handler returned None (Likely connection issue)."
 
         except Exception as e:
-            # Catches OperationFailure (DB issues) or other errors re-raised by the handler
             db_status_message = f"DB_CRITICAL_ERROR: {e.__class__.__name__}: {str(e)}"
             insert_id = None
             
@@ -128,7 +126,6 @@ def run_system():
                     normalized_link = normalize_url(link)
                     
                     is_internal = urlparse(link).netloc == base_domain
-                    # Check if the link is internal AND has not been visited AND is not already waiting in the queue
                     is_new = normalized_link not in visited_urls and normalized_link not in queued_urls
                     
                     if is_internal and is_new:
@@ -150,7 +147,6 @@ def run_system():
             
     print("\n--- Crawl Finished ---")
     print(f"Total Unique Pages Visited: {len(visited_urls)}")
-    # If the crawl queue empties correctly, queued_urls should be 0, but shows any waiting links if loop breaks unexpectedly
     print(f"Total Unique Pages Queued (Unprocessed): {len(queued_urls)}")
 
 
