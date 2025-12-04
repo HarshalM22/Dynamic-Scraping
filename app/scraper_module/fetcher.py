@@ -6,7 +6,6 @@ from urllib.parse import urlparse
 from playwright.sync_api import sync_playwright, Page
 import pdfplumber
 from config.settings import SETTINGS
-# Assuming these are defined elsewhere:
 from app.scraper_module.parser import parse_html_content, parse_api_content, extract_links
 
 
@@ -18,6 +17,8 @@ DOWNLOAD_DIR = 'my_downloads'
 # GLOBAL SET: Tracks file URLs that have been successfully downloaded and processed 
 # in this session to prevent redundant downloads.
 PROCESSED_FILE_URLS = set()
+
+GLOBAL_CLICKED_ELEMENTS = set()
 
 def is_downloadable_file_link(url: str) -> bool:
     """Checks if a URL points to a downloadable file based on its extension."""
@@ -109,35 +110,35 @@ def simulate_clicks_on_tabs(page: Page, url: str) -> None:
     Looks for common tab/accordion elements globally and simulates clicks on ALL
     non-active elements to reveal hidden content, then waits for load.
     
-    This function uses generic selectors to maximize compatibility across different sites.
+    Uses a set to track already clicked elements to prevent redundant actions.
     """
-    # XPaths and selectors targeting visible, clickable navigation elements (GLOBALIZED)
     tab_selectors = [
-    # General interactive elements (links, buttons)
-    "//a[contains(@class, 'tab-link') or contains(@class, 'nav-link') or contains(@class, 'sidebar-link') or contains(@class, 'btn')]",
-    
-    # Containers that handle collapsible content (crucial for Accordions/Collapsibles)
-    "//div[contains(@class, 'tab') or contains(@class, 'accordion') or contains(@class, 'menu-item') or contains(@class, 'collapsible')]",
-    
-    # List item links
-    "//li[contains(@class, 'tab')]/a",
-    
-    # Interactive roles (Tabs, Buttons)
-    "button[role='tab']",
-    "a[role='tab']",
-    "[role='button']",
-    
-    # Data Toggles (Crucial for Accordions, the most reliable target)
-    "button[data-toggle]",
-    "a[data-toggle]",
-    "button[data-bs-toggle]",
-    "a[data-bs-toggle]",
-]
+        # General interactive elements (links, buttons)
+        "//a[contains(@class, 'tab-link') or contains(@class, 'nav-link') or contains(@class, 'sidebar-link') or contains(@class, 'btn')]",
+        
+        # Containers that handle collapsible content (crucial for Accordions/Collapsibles)
+        "//div[contains(@class, 'tab') or contains(@class, 'accordion') or contains(@class, 'menu-item') or contains(@class, 'collapsible')]",
+        
+        # List item links
+        "//li[contains(@class, 'tab')]/a",
+        
+        # Interactive roles (Tabs, Buttons)
+        "button[role='tab']",
+        "a[role='tab']",
+        "[role='button']",
+        
+        # Data Toggles (Crucial for Accordions, the most reliable target)
+        "button[data-toggle]",
+        "a[data-toggle]",
+        "button[data-bs-toggle]",
+        "a[data-bs-toggle]",
+    ]
     
     total_clicks = 0
     
-    # Use a set to track elements by their unique text content to avoid processing the same element multiple times
-    clicked_texts = set() 
+    # GLOBAL SET: Tracks clicked elements using a tuple of (Selector, Text Content)
+    # This is more robust than just text, as two elements might have the same text but different selectors.
+    clicked_elements_key = set() 
 
     for selector in tab_selectors:
         try:
@@ -149,21 +150,38 @@ def simulate_clicks_on_tabs(page: Page, url: str) -> None:
                 element = elements.nth(i)
                 element_text = element.inner_text().strip()
                 
-                # Skip if already processed or if the element is empty
-                if not element_text or element_text in clicked_texts:
+                try:
+                    # Get href or a safe identifier
+                    element_id = element.get_attribute('href') or element_text
+                except Exception:
+                    element_id = element_text
+
+                if not element_text or not element_id:
                     continue
                     
-                # Heuristic Check: Skip if the element appears to be the currently active tab
-                # We check for common active classes, aria attributes, or inline background styling
-                is_active = element.evaluate('e => e.classList.contains("active") || e.getAttribute("aria-current") === "page" || e.style.backgroundColor !== ""')
+                element_key = element_id
+                
+                # 1. Check if this element's unique identifier has been clicked globally
+                if element_key in GLOBAL_CLICKED_ELEMENTS:
+                    continue
+                
+                # 2. Check if the element is currently active
+                is_active = element.evaluate("""
+                    e => e.classList.contains("active") || 
+                         e.classList.contains("selected") || 
+                         e.getAttribute("aria-current") === "page" || 
+                         e.getAttribute("aria-selected") === "true"
+                """)
                 
                 if not is_active:
                     print(f"    🖱️ Simulating click on potential hidden content trigger: {element_text}")
                     element.click(timeout=3000) 
-                    time.sleep(1.5) # Wait for the new content to load
+                    page.wait_for_timeout(3000)
                     total_clicks += 1
-                    clicked_texts.add(element_text)
-            
+                    
+                    # 3. Add the element key to the global tracker after a successful click
+                    GLOBAL_CLICKED_ELEMENTS.add(element_key)
+                
         except Exception:
             # Silently fail and continue to the next selector
             continue
