@@ -113,13 +113,26 @@ def simulate_clicks_on_tabs(page: Page, url: str) -> None:
     """
     # XPaths and selectors targeting visible, clickable navigation elements (GLOBALIZED)
     tab_selectors = [
-        # Generic tab/link selectors
-        "//a[contains(@class, 'tab-link') or contains(@class, 'nav-link') or contains(@class, 'sidebar-link') or contains(@class, 'btn')]",
-        "//div[contains(@class, 'tab') or contains(@class, 'accordion') or contains(@class, 'menu-item') or contains(@class, 'collapsible')]",
-        "//li[contains(@class, 'tab')]/a",
-        "button[role='tab']",
-        "button[data-toggle]",
-    ]
+    # General interactive elements (links, buttons)
+    "//a[contains(@class, 'tab-link') or contains(@class, 'nav-link') or contains(@class, 'sidebar-link') or contains(@class, 'btn')]",
+    
+    # Containers that handle collapsible content (crucial for Accordions/Collapsibles)
+    "//div[contains(@class, 'tab') or contains(@class, 'accordion') or contains(@class, 'menu-item') or contains(@class, 'collapsible')]",
+    
+    # List item links
+    "//li[contains(@class, 'tab')]/a",
+    
+    # Interactive roles (Tabs, Buttons)
+    "button[role='tab']",
+    "a[role='tab']",
+    "[role='button']",
+    
+    # Data Toggles (Crucial for Accordions, the most reliable target)
+    "button[data-toggle]",
+    "a[data-toggle]",
+    "button[data-bs-toggle]",
+    "a[data-bs-toggle]",
+]
     
     total_clicks = 0
     
