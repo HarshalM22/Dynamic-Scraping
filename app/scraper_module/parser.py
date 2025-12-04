@@ -4,21 +4,21 @@ from urllib.parse import urljoin, urlparse, urlunparse
 import re
 
 def parse_html_content(html_content: str) -> dict:
-    """Extracts structured data and full raw content from HTML."""
+    """
+    Extracts structured data and general text from HTML. 
+    (The raw HTML dump is now handled by the fetcher.)
+    """
     soup = BeautifulSoup(html_content, 'html.parser')
     
-    # 1. RAW Data Capture (as requested)
-    full_html = str(soup)
-    
-    # 2. Surface-Level Text (Visible text only, ignoring scripts/styles)
+    # 1. Surface-Level Text (Visible text only, ignoring scripts/styles)
     full_text = soup.body.get_text(separator=' ', strip=True) if soup.body else ""
 
-    # 3. Metadata (Key fields for indexing)
+    # 2. Metadata (Key fields for indexing)
     title = soup.title.string if soup.title else ""
     meta_description = soup.find('meta', attrs={'name': 'description'})
     description = meta_description.get('content') if meta_description else ""
 
-    # 4. Image URLs
+    # 3. Image URLs
     image_urls = [
         img.get('src') for img in soup.find_all('img') if img.get('src')
     ]
@@ -28,7 +28,7 @@ def parse_html_content(html_content: str) -> dict:
         'description': description,
         'full_text_content': full_text,
         'image_urls': image_urls,
-        'raw_html_dump': full_html, # Dump the entire rendered HTML as raw data
+        # 'raw_html_dump' removed here to avoid duplication with fetcher's 'raw_html'
     }
 
 def parse_api_content(json_content: str) -> dict:
@@ -46,6 +46,10 @@ def extract_links(html_content: str, base_url: str) -> set:
     
     extracted_links = set()
     
+    # Common file extensions we want to treat as links, not files (though fetcher filters these later)
+    # We include all extensions here and let the fetcher decide which are pages vs. files
+    FILE_EXTENSIONS_PATTERN = r'\.(jpg|jpeg|png|gif|pdf|zip|doc|docx|xls|xlsx|mp4)$'
+    
     for a_tag in soup.find_all('a', href=True):
         href = a_tag.get('href')
         
@@ -61,8 +65,11 @@ def extract_links(html_content: str, base_url: str) -> set:
             # 4. Clean URL for deduplication (remove fragments/queries)
             clean_url = urlunparse(parsed_link._replace(fragment='', query=''))
             
-            # 5. Filter out common non-content links (e.g., mailto, javascript, image/file extensions)
-            if not re.search(r'\.(jpg|jpeg|png|gif|pdf|zip|mailto)$', clean_url, re.IGNORECASE):
+            # 5. Filter out common non-content links (e.g., mailto, javascript)
+            if not re.search(r'^(mailto|javascript)', clean_url, re.IGNORECASE):
+                
+                
+                
                 extracted_links.add(clean_url)
             
     return extracted_links

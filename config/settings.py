@@ -3,10 +3,8 @@ from dotenv import load_dotenv
 from urllib.parse import quote_plus
 from typing import Final 
 
-# Load environment variables from .env file
 load_dotenv()
 
-# --- 1. Define Constants for Config Keys ---
 class EnvKeys:
     MONGO_USER: Final[str] = "MONGO_USER"
     MONGO_PASS: Final[str] = "MONGO_PASS"
@@ -15,23 +13,18 @@ class EnvKeys:
     HEADLESS_MODE: Final[str] = "HEADLESS_MODE"
     MAX_CRAWL_DEPTH: Final[str] = "MAX_CRAWL_DEPTH"
 
-# --- 2. Centralized Settings Class ---
 class Settings:
     """Configuration settings for the data scraper application."""
 
-    # --- MongoDB Configuration ---
     
     MONGO_USER: Final[str] = os.getenv(EnvKeys.MONGO_USER, "default_user")
     MONGO_PASS_RAW: Final[str] = os.getenv(EnvKeys.MONGO_PASS, "default_pass")
 
-    # print("mongo user: ",EnvKeys.MONGO_USER)
     
-    # Static host for cluster.
     MONGO_HOST: Final[str] = "cluster0.l3ldkmn.mongodb.net"
     
     MONGO_PASS_ENCODED: Final[str] = quote_plus(MONGO_PASS_RAW)
 
-    # Construct the final, secure, and properly encoded UR
     MONGO_URI: Final[str] = (
         f"mongodb+srv://{MONGO_USER}:{MONGO_PASS_ENCODED}@{MONGO_HOST}"
     )

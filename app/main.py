@@ -7,16 +7,16 @@ from urllib.parse import urlparse
 import sys
 from typing import Tuple, Dict, Any
 
-INPUT_LINK = "https://ghrce.raisoni.net/sports"
+INPUT_LINK = "https://www.southeasthealth.org/financial-information-price-transparency"
 
 def normalize_url(url: str) -> str:
     """Cleans a URL by removing query parameters and fragments."""
     try:
         parsed = urlparse(url)
-        # Reconstructs the URL using only scheme, netloc, and path
         # rstrip('/') ensures consistent normalization (e.g., 'a.com/' becomes 'a.com')
         clean_url = parsed.scheme + "://" + parsed.netloc + parsed.path.rstrip('/')
 
+        # print("normalized url : ", clean_url) 
         return clean_url
     except Exception:
         return url 
@@ -24,8 +24,8 @@ def normalize_url(url: str) -> str:
 def run_system():
     """
     Main function to run the recursive web crawl (BFS) and store data.
-    Now correctly handles and stores HTML content, structured HTML data,
-    and scraped content from linked document files (PDFs).
+    Correctly handles and stores HTML content, structured HTML data,
+    and scraped content from linked document files (PDFs/Docs).
     """
     print("Starting Recursive Web Crawler...")
     print(f"Seed URL: {INPUT_LINK}")
@@ -67,16 +67,15 @@ def run_system():
         # Add to visited set immediately.
         visited_urls.add(current_url)
         
-        print(f"\n[Depth {current_depth}] Processing: {current_url}")
+        print(f"[Depth {current_depth}] Processing: {current_url}")
         
         start_time = time.time()
         
         # 3. Fetch and Scrape
-        # The result now includes 'raw_html', 'data', 'links', and 'scraped_pdfs'
+        # The result includes 'raw_html', 'data', 'links', and 'scraped_files'
         crawl_result: Dict[str, Any] = fetch_content_and_links(current_url)
         
-        # 4. Prepare Data for DB (UPDATED LOGIC)
-        # We consolidate all returned content into a single document for the current URL.
+        # 4. Prepare Data for DB 
         db_document = {
             'input_url': current_url,
             'crawl_depth': current_depth,
@@ -86,15 +85,14 @@ def run_system():
             'error_message': crawl_result.get('error', None),
             
             # --- HTML Content and Structure ---
-            'raw_html_content': crawl_result.get('raw_html', None), # Full HTML dump
-            'html_structured_data': crawl_result.get('data'),       # Parsed data from HTML (e.g., specific fields)
+            'raw_html_content': crawl_result.get('raw_html', None),       # Full HTML dump
+            'html_structured_data': crawl_result.get('data'),             # Parsed data from HTML ( specific fields)
             
-            # --- File Content (PDFs) ---
-            # This is a list of dictionaries, where each dict contains text, tables_json, and file metadata
-            'scraped_files': crawl_result.get('scraped_pdfs', []), 
+            # --- File Content (PDFs/Docs) ---
+            'scraped_files': crawl_result.get('scraped_files', []),       # List of dictionaries with file content/metadata
         }
         
-        # 5. Store Data with Robust Error Handling
+        # 5. Store Data 
         insert_id = None
         db_status_message = db_document['status'] # Start with the crawl status
 
