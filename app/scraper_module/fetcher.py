@@ -105,29 +105,20 @@ def process_document_content(file_path: str, file_url: str) -> dict | None:
     
     return None
 
-def simulate_clicks_on_tabs(page: Page, url: str) -> None:
+# Assuming parse_html_content and extract_links are available globally
+
+def simulate_clicks_on_tabs(page: Page, url: str, newly_discovered_links: set) -> None:
     """
-    Looks for common tab/accordion elements globally and simulates clicks on ALL
-    non-active elements to reveal hidden content, then waits for load.
-    
-    Uses a set to track already clicked elements to prevent redundant actions.
+    Simulates clicks, extracts *new* links after each click, and adds them 
+    to the newly_discovered_links set passed by reference.
     """
     tab_selectors = [
-        # General interactive elements (links, buttons)
         "//a[contains(@class, 'tab-link') or contains(@class, 'nav-link') or contains(@class, 'sidebar-link') or contains(@class, 'btn')]",
-        
-        # Containers that handle collapsible content (crucial for Accordions/Collapsibles)
         "//div[contains(@class, 'tab') or contains(@class, 'accordion') or contains(@class, 'menu-item') or contains(@class, 'collapsible')]",
-        
-        # List item links
         "//li[contains(@class, 'tab')]/a",
-        
-        # Interactive roles (Tabs, Buttons)
         "button[role='tab']",
         "a[role='tab']",
         "[role='button']",
-        
-        # Data Toggles (Crucial for Accordions, the most reliable target)
         "button[data-toggle]",
         "a[data-toggle]",
         "button[data-bs-toggle]",
@@ -135,37 +126,25 @@ def simulate_clicks_on_tabs(page: Page, url: str) -> None:
     ]
     
     total_clicks = 0
-    
-    # GLOBAL SET: Tracks clicked elements using a tuple of (Selector, Text Content)
-    # This is more robust than just text, as two elements might have the same text but different selectors.
-    clicked_elements_key = set() 
+    # LOCAL SET: Tracks clicked elements on *this page visit* to avoid same-page repetition
+    clicked_elements_key = set()
+    # Store links *before* the click to detect which ones are new
+    links_before_click = extract_links(page.content(), url) 
 
     for selector in tab_selectors:
         try:
-            # Find all elements matching the selector that are visible
             elements = page.locator(selector + ":visible")
             count = elements.count()
             
             for i in range(count):
                 element = elements.nth(i)
                 element_text = element.inner_text().strip()
+                element_key = (selector, element_text)
                 
-                try:
-                    # Get href or a safe identifier
-                    element_id = element.get_attribute('href') or element_text
-                except Exception:
-                    element_id = element_text
-
-                if not element_text or not element_id:
+                if not element_text or element_key in clicked_elements_key:
                     continue
                     
-                element_key = element_id
-                
-                # 1. Check if this element's unique identifier has been clicked globally
-                if element_key in GLOBAL_CLICKED_ELEMENTS:
-                    continue
-                
-                # 2. Check if the element is currently active
+                # Check if the element is currently active (skip active elements)
                 is_active = element.evaluate("""
                     e => e.classList.contains("active") || 
                          e.classList.contains("selected") || 
@@ -176,21 +155,32 @@ def simulate_clicks_on_tabs(page: Page, url: str) -> None:
                 if not is_active:
                     print(f"    🖱️ Simulating click on potential hidden content trigger: {element_text}")
                     element.click(timeout=3000) 
-                    page.wait_for_timeout(3000)
-                    total_clicks += 1
                     
-                    # 3. Add the element key to the global tracker after a successful click
-                    GLOBAL_CLICKED_ELEMENTS.add(element_key)
+                    # Wait for the DOM to settle
+                    page.wait_for_timeout(2000) # Wait 2 seconds
+
+                    # --- INCREMENTAL LINK EXTRACTION ---
+                    links_after_click = extract_links(page.content(), url)
+                    new_links = links_after_click - links_before_click
+                    
+                    if new_links:
+                        print(f"    🔗 Discovered {len(new_links)} new links after clicking '{element_text}'.")
+                        newly_discovered_links.update(new_links)
+                        # Update the baseline links for the next click
+                        links_before_click.update(new_links)
+
+                    # --- END INCREMENTAL LINK EXTRACTION ---
+                    
+                    total_clicks += 1
+                    clicked_elements_key.add(element_key)
                 
         except Exception:
-            # Silently fail and continue to the next selector
             continue
             
     if total_clicks > 0:
         print(f"    ✨ Finished aggressive clicking. Total new tabs clicked: {total_clicks}")
-        # One final scroll/wait after all clicks to ensure dynamic links are rendered
         page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-        time.sleep(1)
+        page.wait_for_timeout(2000)
 
 # --- MAIN FETCHING FUNCTION ---
 
@@ -212,9 +202,46 @@ def fetch_content_and_links(url: str) -> dict:
                 data = parse_api_content(response.text)
                 return {'url': url, 'type': 'API', 'data': data, 'links': set(), 'scraped_files': []}
             else:
+                # --- STATIC HTML FETCHING & FILE PROCESSING LOGIC IMPROVED ---
+                
+                # 1. Parse content and extract all links
                 data = parse_html_content(response.text)
-                links = extract_links(response.text, url)
-                return {'url': url, 'type': 'STATIC_HTML', 'data': data, 'links': links, 'scraped_files': []}
+                all_links = extract_links(response.text, url)
+                
+                # 2. Separate file links from standard page links
+                file_links = {link for link in all_links if is_downloadable_file_link(link)}
+                page_links = all_links - file_links
+                
+                scraped_files = []
+                
+                # 3. Download and process files found on the static page
+                if file_links:
+                    print(f"    -> Found {len(file_links)} files on static page to download and process...")
+                    for file_url in file_links:
+                        
+                        # Use global tracker to prevent redundant downloads (if the file was crawled dynamically elsewhere)
+                        if file_url in PROCESSED_FILE_URLS:
+                            print(f"    ⏭️ Skipping already processed file: {file_url}")
+                            continue
+                        
+                        local_path = download_file(file_url) # Downloads the file
+                        
+                        if local_path:
+                            # Processes the document (e.g., extracts text from PDF)
+                            doc_data = process_document_content(local_path, file_url)
+                            
+                            if doc_data:
+                                doc_data['file_url'] = file_url
+                                scraped_files.append(doc_data)
+                                PROCESSED_FILE_URLS.add(file_url) # Mark as processed globally
+                
+                return {
+                    'url': url, 
+                    'type': 'STATIC_HTML', 
+                    'data': data, 
+                    'links': page_links, 
+                    'scraped_files': scraped_files
+                }
 
         except requests.RequestException as e:
             return {'url': url, 'error': f"Request failed: {e}", 'links': set(), 'scraped_files': []}
@@ -236,38 +263,52 @@ def fetch_content_and_links(url: str) -> dict:
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(1) 
                 
-                # 2. *** Simulate ALL non-active clicks ***
-                simulate_clicks_on_tabs(page, url)
+                # Set up the container for links discovered during clicks
+                newly_discovered_links = set()
                 
-                # 3. Get the final, fully rendered HTML content (which now includes all revealed links)
-                final_html = page.content()
+                # 2. *** Simulate ALL non-active clicks & Discover Links Incrementally ***
+                simulate_clicks_on_tabs(page, url, newly_discovered_links)
                 
-                # 4-8. Link extraction, file processing, and cleanup
-                # parse_html_content and extract_links must be imported/defined.
-                structured_data = parse_html_content(final_html)
-                all_links = extract_links(final_html, url)
-                
-                file_links = {link for link in all_links if is_downloadable_file_link(link)}
-                page_links = all_links - file_links
-                
+                # 3. Process incrementally discovered files immediately (Priority Processing)
+                # These links were found and added to the set during the clicks above.
                 scraped_files = []
-                if file_links:
-                    print(f"    -> Found {len(file_links)} files to download and process...")
-                    for file_url in file_links:
-                        
+                
+                if newly_discovered_links:
+                    print(f"    -> PRIORITY PROCESSING {len(newly_discovered_links)} incrementally discovered links...")
+                    
+                    # Separate files from pages in the incrementally discovered links
+                    new_file_links = {link for link in newly_discovered_links if is_downloadable_file_link(link)}
+                    # Keep only non-file links for final consolidation
+                    incremental_page_links = newly_discovered_links - new_file_links
+                    
+                    for file_url in new_file_links:
                         if file_url in PROCESSED_FILE_URLS:
                             print(f"    ⏭️ Skipping already processed file: {file_url}")
                             continue
                         
                         local_path = download_file(file_url)
-                        
                         if local_path:
                             doc_data = process_document_content(local_path, file_url)
-                            
                             if doc_data:
                                 doc_data['file_url'] = file_url
                                 scraped_files.append(doc_data)
-                                PROCESSED_FILE_URLS.add(file_url) # Mark as processed
+                                PROCESSED_FILE_URLS.add(file_url) # Mark as processed globally
+
+                # 4. Final HTML Capture and Full Link Extraction (Catch any non-link content/links missed by incremental logic)
+                final_html = page.content()
+                structured_data = parse_html_content(final_html)
+                
+                # Get ALL links again from the final HTML
+                all_final_links = extract_links(final_html, url)
+                
+                # 5. Consolidate Links
+                # Start with the incremental page links found earlier
+                page_links = incremental_page_links 
+                # Add any remaining page links found in the final full HTML, excluding files already processed
+                for link in all_final_links:
+                    if not is_downloadable_file_link(link) and link not in page_links:
+                        page_links.add(link)
+
 
                 browser.close()
                 return {
@@ -275,10 +316,13 @@ def fetch_content_and_links(url: str) -> dict:
                     'type': 'DYNAMIC_HTML', 
                     'raw_html': final_html,
                     'data': structured_data, 
+                    # Use the consolidated page links and the files processed during the loop
                     'links': page_links,
-                    'scraped_files': scraped_files
+                    'scraped_files': scraped_files 
                 }
                 
             except Exception as e:
                 browser.close()
-                return {'url': url, 'error': f"Playwright failed: {e}", 'links': set(), 'scraped_files': []}
+                # Use incremental_page_links if they were defined before the exception
+                links_to_return = incremental_page_links if 'incremental_page_links' in locals() else set()
+                return {'url': url, 'error': f"Playwright failed: {e}", 'links': links_to_return, 'scraped_files': scraped_files if 'scraped_files' in locals() else []}

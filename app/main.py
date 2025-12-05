@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import sys
 from typing import Tuple, Dict, Any
 
-INPUT_LINK = "https://www.southeasthealth.org/financial-information-price-transparency"
+INPUT_LINK = "https://ghrce.raisoni.net/sports"
 
 def normalize_url(url: str) -> str:
     """Cleans a URL by removing query parameters and fragments."""
