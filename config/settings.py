@@ -44,6 +44,10 @@ class Settings:
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 (Custom WebCrawler)"
     )
 
+    SERPAPI_KEY = os.getenv("SERPAPI_KEY", "")
+    USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+    REQUEST_TIMEOUT = 10
+
 # Instantiate the settings object for application-wide use
 SETTINGS = Settings()
 
